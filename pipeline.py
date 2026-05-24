@@ -1,8 +1,8 @@
 %%writefile pipeline.py
 
-from retrievers import reciprocal_rank_fusion
 import numpy as np
-
+from deep_translator import GoogleTranslator
+from retrievers import reciprocal_rank_fusion
 
 class LegalRetrievalPipeline:
     def __init__(self, config, emb_manager, reranker, bm25_laws, bm25_courts, faiss_laws, laws_df, court_df, law_map, court_map):
@@ -18,14 +18,21 @@ class LegalRetrievalPipeline:
         self.court_map = court_map
 
     def retrieve(self, query, query_embedding):
-        sparse_laws = self.bm25_laws.search(query, self.config.TOP_K_RETRIEVAL)
+
+        try:
+            translated_query = self.translator.translate(query)
+        except Exception as e:
+            print(f"Translation error: {e}")
+            translated_query = query 
+        
+        sparse_laws = self.bm25_laws.search(translated_query, self.config.TOP_K_RETRIEVAL)
         dense_laws = self.faiss_laws.search(query_embedding, self.config.TOP_K_RETRIEVAL)
         fused_laws = reciprocal_rank_fusion(sparse_laws, dense_laws, self.config.RRF_K)
         
         law_citations = [self.laws_df.iloc[idx]['citation'] for idx, _ in fused_laws[:self.config.TOP_K_RETRIEVAL]]
 
         expansion = ' '.join(law_citations[:self.config.LAWS_EXPANSION_TOP_K])
-        expanded_query = f'{query} {expansion}' if expansion else query
+        expanded_query = f'{translated_query} {expansion}' if expansion else translated_query
         court_results = self.bm25_courts.search(expanded_query, self.config.TOP_K_RETRIEVAL)
         court_citations = [self.court_df.iloc[idx]['citation'] for idx, _ in court_results]
 
